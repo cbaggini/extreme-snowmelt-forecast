@@ -11,8 +11,10 @@ Created on Mon Nov 22 17:46:26 2021
 
 import requests
 import pandas as pd
+import numpy as np
 import geopandas as gpd
 
+from scipy.spatial import cKDTree
 from shapely.geometry import Point
 
 
@@ -50,7 +52,7 @@ flow_df.to_csv('flow.csv', index=False)
 
 # %% Only keep sites with continuous data for 10+ years
 
-flow_df = pd.read_csv('./flow.csv').iloc[:, 1:]
+flow_df = pd.read_csv('../flow.csv').iloc[:, 1:]
 
 flow_df.columns = ['date', 'flow', 'quality', 'site_id', 'id',
                    'name', 'latitude', 'longitude']
@@ -71,7 +73,7 @@ flow_sites_df = pd.merge(sites_df, freq_df, on='site_id')
 final_flow_sites_df = flow_sites_df[(flow_sites_df['year_count'] >= 10) & (
     flow_sites_df['obs_per_year'] >= 200)]
 
-final_flow_sites_df.to_csv('flow_sites.csv', index=False)
+final_flow_sites_df.to_csv('../flow_sites.csv', index=False)
 
 # %% Create shapefile of suitable flow sites
 
@@ -80,7 +82,7 @@ final_flow_sites_df['geometry'] = final_flow_sites_df.apply(
 gdf = gpd.GeoDataFrame(final_flow_sites_df,
                        geometry=final_flow_sites_df.geometry)
 gdf.to_file(driver='ESRI Shapefile', crs="EPSG:4326",
-            filename="./flow_sites/flow_sites.shp")
+            filename="../flow_sites/flow_sites.shp")
 
 # %% Download snow depth data and save to csv
 
@@ -110,11 +112,11 @@ for site_id in sites:
     print(len(snow_df))
 
 snow_df = snow_df.merge(sites_df, how='left', left_on='site_id', right_on='id')
-snow_df.to_csv('snow.csv', index=False)
+snow_df.to_csv('../snow.csv', index=False)
 
 # %% Only keep sites with data for 10+ years
 
-snow_df = pd.read_csv('./snow.csv', low_memory=False)
+snow_df = pd.read_csv('../snow.csv', low_memory=False)
 
 snow_df = snow_df.drop('id', axis=1)
 
@@ -136,7 +138,7 @@ snow_sites_df = pd.merge(sites_df, freq_df, on='site_id')
 final_snow_sites_df = snow_sites_df[(snow_sites_df['year_count'] >= 10) & (
     snow_sites_df['obs_per_year'] >= 100)]
 
-final_snow_sites_df.to_csv('snow_sites.csv', index=False)
+final_snow_sites_df.to_csv('../snow_sites.csv', index=False)
 
 # %% Create snow sites shapefile
 
@@ -145,12 +147,12 @@ final_snow_sites_df['geometry'] = final_snow_sites_df.apply(
 gdf = gpd.GeoDataFrame(final_snow_sites_df,
                        geometry=final_snow_sites_df.geometry)
 gdf.to_file(driver='ESRI Shapefile', crs="EPSG:4326",
-            filename="./snow_sites/snow_sites.shp")
+            filename="../snow_sites/snow_sites.shp")
 
 # %% Calculating drainage area from waterbody polygons, raster is too computationally intensive
 
-flow_sites = gpd.read_file("./flow_sites/flow_snapped_joined.gpkg")
-catchments = gpd.read_file("./catchments/zhyd_fixed.gpkg")
+flow_sites = gpd.read_file("../flow_sites/flow_snapped_joined.gpkg")
+catchments = gpd.read_file("../catchments/zhyd_fixed.gpkg")
 
 basin_list = []
 
@@ -207,7 +209,7 @@ for ind, row in flow_sites.iterrows():
 upstream_gdf = pd.concat([x for x in basin_list]).pipe(gpd.GeoDataFrame)
 upstream_gdf.plot()
 upstream_gdf.to_file(driver='ESRI Shapefile', crs="EPSG:4326",
-                     filename="./catchments/us_catchments.shp")
+                     filename="../catchments/us_catchments.shp")
 
 # %% Download all basin shapefiles and save to shp
 
@@ -233,14 +235,14 @@ basins_gdf = pd.concat([x for x in gdf_list]).pipe(gpd.GeoDataFrame)
 
 basins_gdf.plot()
 basins_gdf.to_file(driver='ESRI Shapefile', crs="EPSG:4258",
-                   filename="./basins/basins.shp")
+                   filename="../basins/basins.shp")
 
-# %% Find snow depth sites in each site catchment, and have one row per flow/snow site pair (in QGIS)
+# %% Find snow depth sites in each site catchment, and have one row per flow/snow site pair
 # Then find distance between snow and flow site for each polygon and export to csv
 
-us_catchments = gpd.read_file("./catchments/us_catchments_snow.gpkg")
-flow_sites = gpd.read_file("./flow_sites/flow_snapped_joined.gpkg")
-snow_sites = gpd.read_file("./snow_sites/snow_sites.shp")
+us_catchments = gpd.read_file("../catchments/us_catchments_snow.gpkg")
+flow_sites = gpd.read_file("../flow_sites/flow_snapped_joined.gpkg")
+snow_sites = gpd.read_file("../snow_sites/snow_sites.shp")
 
 us_catchments = us_catchments[us_catchments.snow_site_id.values != None]
 
@@ -255,22 +257,178 @@ for i, row in us_catchments.iterrows():
     points_df2 = points_df.shift()
     us_catchments.loc[i, 'distance'] = points_df.distance(points_df2).iloc[1]
 
-us_catchments.to_csv('site_pairs.csv', index=False)
-
-# TODO: remove snow sites without a flow site within 100km
+us_catchments.to_csv('../site_pairs.csv', index=False)
 
 # %%
+# Download temperature data from SMHI
 
-# TODO download temperature data from SMHI
+url = 'https://opendata-download-metobs.smhi.se/api/version/latest/parameter/2.json'
+
+resp = requests.get(url=url)
+data = resp.json()
+sites = [str(x['id']) for x in data['station']]
+
+sites_df = pd.json_normalize(data['station'])
+sites_df = sites_df[['id', 'name', 'latitude', 'longitude']]
+sites_df['id'] = sites_df['id'].astype(str)
+
+temp_df = pd.DataFrame(columns=['datetime1', 'datetime2', 'date', 'temp', 'quality'])
+
+for site_id in sites:
+    url = 'https://opendata-download-metobs.smhi.se/api/version/latest/parameter/2/station/' + \
+        site_id + '/period/corrected-archive/data.csv'
+    print(url)
+    df = pd.read_csv(url,
+                     names=['datetime1', 'datetime2', 'date', 'temp', 'quality'],
+                     sep=';',
+                     skiprows=11,
+                     index_col=False)
+    df['site_id'] = site_id
+    temp_df = temp_df.append(df)
+    print(len(temp_df))
+
+temp_df = temp_df.merge(sites_df, how='left', left_on='site_id', right_on='id')
+temp_df = temp_df.drop(columns=['datetime1', 'datetime2'])
+temp_df.to_csv('../temp.csv', index=False)
+
+# %% Only keep sites with continuous data for 10+ years
+
+temp_df = pd.read_csv('../temp.csv')
+
+temp_df = temp_df[temp_df['quality'] == 'Y']
+
+temp_df = temp_df.drop('id', axis=1)
+temp_df['date'] = pd.to_datetime(temp_df['date'])
+
+freq_df = temp_df.groupby('site_id')['date'].agg([('year_count', lambda x: x.dt.year.max() - x.dt.year.min()),
+                                                  ('obs_per_year', lambda x: x.count() / (x.dt.year.max() - x.dt.year.min()))])
+freq_df = freq_df.reset_index()
+freq_df['site_id'] = freq_df['site_id'].astype(str)
+
+sites_df.columns = ['site_id', 'name', 'latitude', 'longitude']
+temp_sites_df = pd.merge(sites_df, freq_df, on='site_id')
+final_temp_sites_df = temp_sites_df[(temp_sites_df['year_count'] >= 10) & (
+    temp_sites_df['obs_per_year'] >= 200)]
+
+final_temp_sites_df.to_csv('../temp_sites.csv', index=False)
+# %%
+# Download precipitation data from SMHI
+
+url = 'https://opendata-download-metobs.smhi.se/api/version/latest/parameter/5.json'
+
+resp = requests.get(url=url)
+data = resp.json()
+sites = [str(x['id']) for x in data['station']]
+
+sites_df = pd.json_normalize(data['station'])
+sites_df = sites_df[['id', 'name', 'latitude', 'longitude']]
+sites_df['id'] = sites_df['id'].astype(str)
+
+prec_df = pd.DataFrame(columns=['datetime1', 'datetime2', 'date', 'prec', 'quality'])
+
+for site_id in sites:
+    url = 'https://opendata-download-metobs.smhi.se/api/version/latest/parameter/5/station/' + \
+        site_id + '/period/corrected-archive/data.csv'
+    print(url)
+    df = pd.read_csv(url,
+                     names=['datetime1', 'datetime2', 'date', 'prec', 'quality'],
+                     sep=';',
+                     skiprows=11,
+                     index_col=False)
+    df['site_id'] = site_id
+    prec_df = prec_df.append(df)
+    print(len(prec_df))
+
+prec_df = prec_df.merge(sites_df, how='left', left_on='site_id', right_on='id')
+prec_df = prec_df.drop(columns=['datetime1', 'datetime2'])
+prec_df.to_csv('../prec.csv', index=False)
+
+# %% Only keep sites with continuous data for 10+ years
+
+prec_df = pd.read_csv('../prec.csv')
+
+prec_df = prec_df[(prec_df['quality'] == 'Y') | (prec_df['quality'] == 'G')]
+
+prec_df = prec_df.drop('id', axis=1)
+prec_df['date'] = pd.to_datetime(prec_df['date'])
+
+freq_df = prec_df.groupby('site_id')['date'].agg([('year_count', lambda x: x.dt.year.max() - x.dt.year.min()),
+                                                  ('obs_per_year', lambda x: x.count() / (x.dt.year.max() - x.dt.year.min()))])
+freq_df = freq_df.reset_index()
+freq_df['site_id'] = freq_df['site_id'].astype(str)
+
+sites_df.columns = ['site_id', 'name', 'latitude', 'longitude']
+prec_sites_df = pd.merge(sites_df, freq_df, on='site_id')
+final_prec_sites_df = prec_sites_df[(prec_sites_df['year_count'] >= 10) & (
+    prec_sites_df['obs_per_year'] >= 200)]
+
+final_prec_sites_df.to_csv('../prec_sites.csv', index=False)
+
+#%%
+
+def ckdnearest(gdA, gdB):
+
+    nA = np.array(list(gdA.geometry.apply(lambda x: (x.x, x.y))))
+    nB = np.array(list(gdB.geometry.apply(lambda x: (x.x, x.y))))
+    btree = cKDTree(nB)
+    dist, idx = btree.query(nA, k=1)
+    gdB_nearest = gdB.iloc[idx].drop(columns="geometry").reset_index(drop=True)
+    gdf = pd.concat(
+        [
+            gdA.reset_index(drop=True),
+            gdB_nearest,
+            pd.Series(dist, name='dist')
+        ], 
+        axis=1)
+
+    return gdf
 
 # %%
+# Find closest temperature site to snow depth site and calculate distance
+# 1 degree is just over 100km
 
-# TODO download precipitation data from SMHI
+final_temp_sites_df = pd.read_csv('../temp_sites.csv')
+
+final_temp_sites_df['geometry'] = final_temp_sites_df.apply(
+    lambda row: Point(row.longitude, row.latitude), axis=1)
+gdf = gpd.GeoDataFrame(final_temp_sites_df,
+                       geometry=final_temp_sites_df.geometry)
+gdf.to_file(driver='ESRI Shapefile', crs="EPSG:4326",
+            filename="../temp_sites/temp_sites.shp")
+
+final_temp_sites_df.columns = ['site_id_temp', 'name_temp', 'latitude_temp', 'longitude_temp', 'year_count_temp',
+       'obs_per_year_temp', 'geometry']
+
+snow_sites = gpd.read_file("../snow_sites/snow_sites.shp")
+
+snow_sites.columns = ['site_id_snow', 'name_snow', 'latitude_snow', 'longitude_snow', 'year_count_snow', 'obs_per_year_snow',
+       'geometry']
+
+site_pair_temp = ckdnearest(gdf, snow_sites)
+site_pair_temp = site_pair_temp.drop(columns=['latitude_snow', 'longitude_snow', 'latitude_temp', 'longitude_temp', 'geometry'])
+site_pair_temp.to_csv('../site_pairs_temp.csv', index=False)
 
 # %%
+# Find closest precipitation site to snow depth site and calculate distance
 
-# TODO find closest temperature site to snow depth site and calculate distance, then remove site pairs further than 100km
+final_prec_sites_df = pd.read_csv('../prec_sites.csv')
 
-# %%
+final_prec_sites_df['geometry'] = final_prec_sites_df.apply(
+    lambda row: Point(row.longitude, row.latitude), axis=1)
+gdf = gpd.GeoDataFrame(final_prec_sites_df,
+                       geometry=final_prec_sites_df.geometry)
+gdf.to_file(driver='ESRI Shapefile', crs="EPSG:4326",
+            filename="../prec_sites/prec_sites.shp")
 
-# TODO find closest precipitation site to snow depth site and calculate distance, then remove site pairs further than 100km
+final_prec_sites_df.columns = ['site_id_prec', 'name_prec', 'latitude_prec', 'longitude_prec', 'year_count_prec',
+       'obs_per_year_prec', 'geometry']
+
+snow_sites = gpd.read_file("../snow_sites/snow_sites.shp")
+
+snow_sites.columns = ['site_id_snow', 'name_snow', 'latitude_snow', 'longitude_snow', 'year_count_snow', 'obs_per_year_snow',
+       'geometry']
+
+site_pair_prec = ckdnearest(gdf, snow_sites)
+site_pair_prec = site_pair_prec.drop(columns=['latitude_snow', 'longitude_snow', 'latitude_prec', 'longitude_prec', 'geometry'])
+site_pair_prec.to_csv('../site_pairs_prec.csv', index=False)
+
