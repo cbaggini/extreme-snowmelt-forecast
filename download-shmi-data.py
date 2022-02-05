@@ -384,7 +384,7 @@ def ckdnearest(gdA, gdB):
     return gdf
 
 # %%
-# Find closest temperature site to snow depth site and calculate distance
+# Find closest temperature site to flow site and calculate distance
 # 1 degree is just over 100km
 
 final_temp_sites_df = pd.read_csv('../temp_sites.csv')
@@ -399,17 +399,17 @@ gdf.to_file(driver='ESRI Shapefile', crs="EPSG:4326",
 final_temp_sites_df.columns = ['site_id_temp', 'name_temp', 'latitude_temp', 'longitude_temp', 'year_count_temp',
        'obs_per_year_temp', 'geometry']
 
-snow_sites = gpd.read_file("../snow_sites/snow_sites.shp")
+flow_sites = gpd.read_file("../flow_sites/flow_sites.shp")
 
-snow_sites.columns = ['site_id_snow', 'name_snow', 'latitude_snow', 'longitude_snow', 'year_count_snow', 'obs_per_year_snow',
+flow_sites.columns = ['site_id_flow', 'name_flow', 'latitude_flow', 'longitude_flow', 'year_count_flow', 'obs_per_year_flow',
        'geometry']
 
-site_pair_temp = ckdnearest(gdf, snow_sites)
-site_pair_temp = site_pair_temp.drop(columns=['latitude_snow', 'longitude_snow', 'latitude_temp', 'longitude_temp', 'geometry'])
+site_pair_temp = ckdnearest(gdf, flow_sites)
+site_pair_temp = site_pair_temp.drop(columns=['latitude_flow', 'longitude_flow', 'latitude_temp', 'longitude_temp', 'geometry'])
 site_pair_temp.to_csv('../site_pairs_temp.csv', index=False)
 
 # %%
-# Find closest precipitation site to snow depth site and calculate distance
+# Find closest precipitation site to flow site and calculate distance
 
 final_prec_sites_df = pd.read_csv('../prec_sites.csv')
 
@@ -423,12 +423,12 @@ gdf.to_file(driver='ESRI Shapefile', crs="EPSG:4326",
 final_prec_sites_df.columns = ['site_id_prec', 'name_prec', 'latitude_prec', 'longitude_prec', 'year_count_prec',
        'obs_per_year_prec', 'geometry']
 
-snow_sites = gpd.read_file("../snow_sites/snow_sites.shp")
+flow_sites = gpd.read_file("../flow_sites/flow_sites.shp")
 
-snow_sites.columns = ['site_id_snow', 'name_snow', 'latitude_snow', 'longitude_snow', 'year_count_snow', 'obs_per_year_snow',
+flow_sites.columns = ['site_id_flow', 'name_flow', 'latitude_flow', 'longitude_flow', 'year_count_flow', 'obs_per_year_flow',
        'geometry']
 
-site_pair_prec = ckdnearest(gdf, snow_sites)
-site_pair_prec = site_pair_prec.drop(columns=['latitude_snow', 'longitude_snow', 'latitude_prec', 'longitude_prec', 'geometry'])
+site_pair_prec = ckdnearest(gdf, flow_sites)
+site_pair_prec = site_pair_prec.drop(columns=['latitude_flow', 'longitude_flow', 'latitude_prec', 'longitude_prec', 'geometry'])
 site_pair_prec.to_csv('../site_pairs_prec.csv', index=False)
 
